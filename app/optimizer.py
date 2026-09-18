@@ -192,6 +192,31 @@ def _summarize(
     )
 
 
+def _demote_to_no_op_if_unsatisfiable(
+    directives: list[DirectiveInterpretation],
+) -> list[DirectiveInterpretation]:
+    """Report a directive as no_op if the fallback path disabled it, rather than
+    claiming applies=true for a directive the returned schedule does not honor."""
+    demoted = []
+    for d in directives:
+        if not d.applies:
+            demoted.append(d)
+            continue
+        demoted.append(
+            DirectiveInterpretation(
+                note_index=d.note_index,
+                applies=False,
+                directive_type=DirectiveType.no_op,
+                structured_adjustment=None,
+                explanation=(
+                    f"Extracted as {d.directive_type.value}, but applying it made the schedule "
+                    "infeasible; the optimizer solved without it and this directive was not applied."
+                ),
+            )
+        )
+    return demoted
+
+
 def solve_schedule(req: ScenarioRequest, directives: list[DirectiveInterpretation]) -> dict:
     hours_by_index: list[HourData] = [None] * 24  # type: ignore[list-item]
     for h in req.hours:
@@ -208,6 +233,8 @@ def solve_schedule(req: ScenarioRequest, directives: list[DirectiveInterpretatio
         if values is None:
             raise RuntimeError(f"Optimizer failed to find a feasible schedule (status={status})")
 
+    reported_directives = _demote_to_no_op_if_unsatisfiable(directives) if fell_back else directives
+
     hourly_plan = _build_hourly_plan(hours_by_index, values)
     total_grid_kwh = round(sum(item.grid_kwh for item in hourly_plan), 2)
     total_cost_bdt = round(
@@ -218,7 +245,7 @@ def solve_schedule(req: ScenarioRequest, directives: list[DirectiveInterpretatio
 
     return {
         "scenario_id": req.scenario_id,
-        "directive_interpretation": directives,
+        "directive_interpretation": reported_directives,
         "hourly_plan": hourly_plan,
         "total_grid_kwh": total_grid_kwh,
         "total_cost_bdt": total_cost_bdt,

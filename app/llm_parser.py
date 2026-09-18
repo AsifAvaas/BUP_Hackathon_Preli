@@ -35,6 +35,7 @@ Convert every note into exactly one directive. Supported directive types:
 
 Rules:
 - Time windows are start-inclusive, end-exclusive. "1 PM to 3 PM" -> hours [13,14]. "6 PM until 9 PM" -> hours [18,19,20].
+- "through" behaves the same as "until"/"to" the hour AFTER the stated end, not the stated end itself: "7 PM through 8 PM" -> hours [19,20], the same as "7 PM until 9 PM". Do not treat "through" as stopping at the named hour.
 - hours must be unique integers 0-23 in ascending order.
 - Do not invent demand, solar, tariff, battery limits, or any directive type not listed above.
 - Every note produces exactly one entry. applies=true for every non-no_op directive; applies=false only for no_op.
