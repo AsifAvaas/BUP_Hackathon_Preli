@@ -98,7 +98,7 @@ def test_llm_parser_falls_back_to_no_op_without_api_key(monkeypatch) -> None:
     from app.llm_parser import interpret_notes
     from app.schemas import BatteryData
 
-    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.delenv("GEMINI_API_KEY", raising=False)
     battery = BatteryData(
         capacity_kwh=200,
         initial_energy_kwh=100,

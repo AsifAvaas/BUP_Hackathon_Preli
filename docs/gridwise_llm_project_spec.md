@@ -20,7 +20,7 @@ The service must:
 - **Web Framework:** FastAPI + Uvicorn (async event loop)
 - **Data Validation & Serialization:** Pydantic v2
 - **Optimization Engine:** PuLP using system-installed CBC solver (via `pulp.COIN_CMD(path=shutil.which("cbc"), msg=False)`)
-- **LLM Provider & SDK:** Anthropic Async Client (`anthropic.AsyncAnthropic`) utilizing Claude 3.5 Haiku (`claude-3-5-haiku-20241022`) via native Tool Use / Structured Outputs for sub-second parsing latency
+- **LLM Provider & SDK:** Google Gemini Async Client (`google.genai.Client(...).aio`) utilizing Gemini Flash-Lite (`gemini-flash-lite-latest`) via native structured-output (`response_schema`) for sub-second parsing latency and free-tier availability
 - **Persistence / Database:** None (the challenge requires a strictly stateless HTTP API; state persistence violates scoring isolation rules)
 - **Containerization:** Docker (Debian slim base, multi-stage build, non-root user, listening on `0.0.0.0:8000`)   
 
@@ -35,7 +35,7 @@ The service must:
                                        ▼
                    ┌───────────────────────────────────────┐
                    │  LLM Directive Parser (Single Call)   │
-                   │  Claude 3.5 Haiku + Tool Use Schema   │
+                   │ Gemini Flash-Lite + response_schema   │
                    └───────────────────────────────────────┘
                                        │
                         (Safe Fallback if API fails)
@@ -226,7 +226,7 @@ The LLM output is untrusted and must pass through programmatic sanitizers before
    - `minimum_battery_reserve`: Clamp `minimum_energy_kwh` between `0.0` and `battery.capacity_kwh`.   
    - `max_grid_window`: Ensure `max_grid_kwh` $\ge 0.0$.   
 5. **Controlled Fallback:**
-   - If the LLM call times out, returns unparsable data, or encounters an Anthropic API error, the service must catch the exception and fall back to returning safe `no_op` entries for all notes rather than failing with an HTTP 500 error.   
+   - If the LLM call times out, returns unparsable data, or encounters a Gemini API error, the service must catch the exception and fall back to returning safe `no_op` entries for all notes rather than failing with an HTTP 500 error.   
 
 ## 7. Mathematical Optimization Formulation (PuLP)
 
@@ -316,7 +316,7 @@ gridwise-llm/
 │   ├── __init__.py
 │   ├── main.py            # FastAPI entry point, /health, /optimize-energy
 │   ├── schemas.py         # Pydantic models for request, response, and tools
-│   ├── llm_parser.py      # AsyncAnthropic client with Tool Use schema
+│   ├── llm_parser.py      # google-genai async client with response_schema
 │   ├── guardrails.py      # Deterministic validation and sanitizer
 │   └── optimizer.py       # PuLP LP formulation and post-processing
 ├── tests/
@@ -335,7 +335,7 @@ fastapi>=0.110.0,<0.111.0
 uvicorn[standard]>=0.28.0,<0.29.0
 pydantic>=2.6.4,<3.0.0
 pulp>=2.8.0,<3.0.0
-anthropic>=0.21.0,<1.0.0
+google-genai>=1.0.0,<3.0.0
 python-dotenv>=1.0.1
 httpx>=0.27.0
 pytest>=8.1.0
@@ -357,13 +357,13 @@ Define exact Pydantic models matching Section 07 and Section 10 of the Problem S
 
 ### 9.3. `app/llm_parser.py`
 
-- Implement `AsyncAnthropic` client.
+- Implement `google.genai.Client(...).aio` async client.
 - Formulate a single prompt that supplies:
   1. The battery parameters (especially `capacity_kwh`) so percentage reserves can be evaluated to numbers.
   2. The exact list of 1-3 operator notes.
 - Define a Tool Schema named `submit_interpretations` requiring an array of objects matching `DirectiveInterpretation` in exact note order.
 - Use `tool_choice={"type": "tool", "name": "submit_interpretations"}` to guarantee structured JSON output.
-- Implement error catching: if API key is missing or Anthropic returns an error/timeout, return a list of fallback `no_op` items.
+- Implement error catching: if API key is missing or Gemini returns an error/timeout, return a list of fallback `no_op` items.
 
 ### 9.4. `app/guardrails.py`
 
@@ -467,4 +467,4 @@ Execute the following steps sequentially to build the project:
    - The energy balance equation holds for all 24 hours ($g_h + s_h + d_h == \text{demand}_h + c_h$).   
    - Final battery level equals initial battery level ($E_{23} == E_{\text{initial}}$).   
 4. **Prepare Production Artifacts:**
-   Ensure no hardcoded API keys exist in the repository. Load `ANTHROPIC_API_KEY` exclusively from environment variables via `python-dotenv`. Prepare `README.md` with copy-pasteable local run commands and `docker run` instructions.
+   Ensure no hardcoded API keys exist in the repository. Load `GEMINI_API_KEY` exclusively from environment variables via `python-dotenv`. Prepare `README.md` with copy-pasteable local run commands and `docker run` instructions.
