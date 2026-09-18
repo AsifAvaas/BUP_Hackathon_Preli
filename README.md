@@ -22,6 +22,8 @@ Built for the **BUP CSE Fest 2026 Hackathon — Preliminary Round** ("GridWise" 
 - [Manual testing (curl / Swagger / Postman)](#manual-testing-curl--swagger--postman)
 - [Design notes & safety behavior](#design-notes--safety-behavior)
 - [Troubleshooting](#troubleshooting)
+- [Known limitations](#known-limitations)
+- [Credits & dependencies](#credits--dependencies)
 
 ---
 
@@ -316,6 +318,33 @@ curl -X POST http://localhost:8000/optimize-energy \
 | `404 NOT_FOUND ... no longer available to new users` in logs | The pinned model id has been deprecated on Google's side | Switch `GEMINI_MODEL` to `gemini-flash-lite-latest` or another current model from `client.models.list()` |
 | `cbc` solver not found (Docker) | `coinor-cbc` wasn't installed in the image | Rebuild the image — the `Dockerfile` installs it via `apt-get`; locally, PuLP's bundled CBC binary is used automatically as a fallback |
 | `400` on every request | Request JSON doesn't match the schema (wrong hour count, missing field, etc.) | Compare your payload against the `docs/BUP_CSE_FEST_2026_Preli_Public_Sample_Cases.json` examples |
+
+## Known limitations
+
+- **No secondary objective on schedule shape.** The optimizer minimizes total cost only. When two or more hours share the same tariff, the LP has more than one optimal solution — the total cost and directive compliance are always correct, but the exact hour-by-hour battery action sequence (and therefore `peak_grid_kwh`) can differ from another equally-optimal schedule (including the public sample pack's reference plan). This is expected LP degeneracy, not a bug — see the challenge spec's "no byte-for-byte matching" clause.
+- **Single LLM call per request, no retry loop.** If the Gemini call fails (rate limit, transient 5xx, missing key), the service falls back to `no_op` for every note in that request rather than retrying — this favors availability/latency over squeezing out one more attempt. A request that hit this fallback can simply be retried by the caller.
+- **Model availability depends on Google's rollout schedule.** `GEMINI_MODEL` defaults to the `gemini-flash-lite-latest` alias specifically to avoid pinning a model id that could be deprecated mid-event; if Google changes what that alias resolves to, interpretation quality could shift slightly.
+- **No persistence, no caching, no rate limiting.** Every request is handled independently and statelessly; repeated identical requests each trigger a fresh LLM call rather than being cached.
+- **No authentication.** The API is unauthenticated by design, matching the judge harness's requirement for direct, login-free access.
+- **CBC solver, not a commercial LP solver.** For a 24-variable-per-hour LP this is fast and reliable, but CBC's tie-breaking behavior among equally optimal solutions is not customized (see the degeneracy point above).
+
+## Credits & dependencies
+
+This project's LLM → guardrails → optimizer architecture and all application code (`app/`) were designed and written specifically for this challenge. It builds on the following open-source libraries and external services:
+
+| Dependency | Role |
+|---|---|
+| [FastAPI](https://fastapi.tiangolo.com/) | Web framework, request routing, OpenAPI/Swagger docs |
+| [Uvicorn](https://www.uvicorn.org/) | ASGI server |
+| [Pydantic v2](https://docs.pydantic.dev/) | Request/response schema validation |
+| [PuLP](https://coin-or.github.io/pulp/) | Linear programming modeling layer |
+| [CBC (COIN-OR)](https://github.com/coin-or/Cbc) | The actual LP solver PuLP calls |
+| [google-genai](https://pypi.org/project/google-genai/) | Official Python SDK for the Google Gemini API |
+| [Google Gemini API](https://ai.google.dev/) (`gemini-flash-lite-latest`) | The LLM used to interpret `operator_notes` into structured directives |
+| [python-dotenv](https://pypi.org/project/python-dotenv/) | Loads `.env` for local development |
+| [pytest](https://pytest.org/) | Test runner |
+
+Development was assisted by an AI coding assistant (Claude Code); all architecture, prompt design, guardrail rules, and optimization formulation were reviewed and validated by the team against the official Problem Statement and Participant Guide.
 
 ---
 
