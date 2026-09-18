@@ -148,12 +148,28 @@ The server is now live at `http://localhost:8000`. Interactive API docs (Swagger
 
 ## Running with Docker
 
+### Option A — pull the published fallback image (recommended for judges)
+
+```bash
+docker pull asifavaas/gridwise-llm:v1
+docker run --rm -p 8000:8000 --env-file .env asifavaas/gridwise-llm:v1
+curl http://localhost:8000/health
+```
+
+- **Registry:** Docker Hub
+- **Image:** `asifavaas/gridwise-llm:v1`
+- **Digest:** `sha256:ec8b5c6c16e0a605a2ff5e9020c514fd56aca06a2327ca0be41cd73ebc048e81`
+
+Verified end-to-end from a clean pull (image removed locally, re-pulled fresh): `/health` returns `200` within seconds, `/optimize-energy` returns a correct, cost-optimal response, the container runs as the non-root `appuser`, and `docker history` confirms no `.env` file or secret value is baked into any layer — `GEMINI_API_KEY` must be supplied at runtime via `--env-file`/environment variables, exactly as with a local build.
+
+### Option B — build from source
+
 ```bash
 docker build -t gridwise-llm .
 docker run --rm -p 8000:8000 --env-file .env gridwise-llm
 ```
 
-The container installs the `coinor-cbc` solver at build time, runs as a non-root user, declares a `HEALTHCHECK` against `/health`, and listens on `0.0.0.0:8000` — matching the judge harness's expected deployment shape. No secrets are baked into the image; `GEMINI_API_KEY` is injected at runtime via `--env-file`/environment variables only. This exact `Dockerfile` is also what [powers the live deployment](#live-deployment) on Render.
+Either way, the container installs the `coinor-cbc` solver at build time, declares a `HEALTHCHECK` against `/health`, and listens on `0.0.0.0:8000` — matching the judge harness's expected deployment shape. This exact `Dockerfile` is also what [powers the live deployment](#live-deployment) on Render.
 
 ## Environment variables
 
