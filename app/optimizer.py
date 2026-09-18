@@ -87,21 +87,19 @@ def _solve_lp(
         pulp.LpVariable(f"solar_used_{h}", lowBound=0, upBound=eff.effective_solar[h])
         for h in range(24)
     ]
+    charge_cap = [0 if h in eff.no_charge else battery.max_charge_kwh_per_hour for h in range(24)]
+    discharge_cap = [
+        0 if h in eff.no_discharge else battery.max_discharge_kwh_per_hour for h in range(24)
+    ]
     charge = [
-        pulp.LpVariable(
-            f"charge_{h}",
-            lowBound=0,
-            upBound=0 if h in eff.no_charge else battery.max_charge_kwh_per_hour,
-        )
-        for h in range(24)
+        pulp.LpVariable(f"charge_{h}", lowBound=0, upBound=charge_cap[h]) for h in range(24)
     ]
     discharge = [
-        pulp.LpVariable(
-            f"discharge_{h}",
-            lowBound=0,
-            upBound=0 if h in eff.no_discharge else battery.max_discharge_kwh_per_hour,
-        )
+        pulp.LpVariable(f"discharge_{h}", lowBound=0, upBound=discharge_cap[h])
         for h in range(24)
+    ]
+    is_charging = [
+        pulp.LpVariable(f"is_charging_{h}", cat="Binary") for h in range(24)
     ]
     energy = [
         pulp.LpVariable(f"energy_{h}", lowBound=eff.reserve_min[h], upBound=battery.capacity_kwh)
@@ -118,6 +116,12 @@ def _solve_lp(
         )
         if h in eff.max_grid_cap:
             prob += grid[h] <= eff.max_grid_cap[h]
+        # Forbid simultaneous charge and discharge in the same hour: the response
+        # schema can only report one battery_action per hour, so a solver-chosen
+        # "wash trade" (nonzero charge and discharge that cancel out) would be
+        # invisible in hourly_plan and break the reported energy balance.
+        prob += charge[h] <= charge_cap[h] * is_charging[h]
+        prob += discharge[h] <= discharge_cap[h] * (1 - is_charging[h])
         if h == 0:
             prob += energy[0] == battery.initial_energy_kwh + charge[0] - discharge[0]
         else:
