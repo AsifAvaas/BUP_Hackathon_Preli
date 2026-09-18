@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 
@@ -90,22 +91,26 @@ async def interpret_notes(operator_notes: list[str], battery: BatteryData) -> li
         logger.warning("GEMINI_API_KEY missing; falling back to no_op interpretations")
         return _fallback_no_op(operator_notes)
 
-    try:
-        client = genai.Client(api_key=api_key)
-        response = await client.aio.models.generate_content(
-            model=MODEL,
-            contents=_build_user_message(operator_notes, battery),
-            config=types.GenerateContentConfig(
-                system_instruction=SYSTEM_PROMPT,
-                response_mime_type="application/json",
-                response_schema=_RawResponse,
-            ),
-        )
-        parsed: _RawResponse | None = response.parsed
-        if parsed is not None and parsed.interpretations:
-            return [item.model_dump() for item in parsed.interpretations]
-        logger.warning("LLM response missing usable structured output; falling back to no_op")
-        return _fallback_no_op(operator_notes)
-    except Exception:
-        logger.exception("LLM interpretation call failed; falling back to no_op")
-        return _fallback_no_op(operator_notes)
+    client = genai.Client(api_key=api_key)
+    for attempt in range(2):  # 1 initial + 1 retry
+        try:
+            response = await client.aio.models.generate_content(
+                model=MODEL,
+                contents=_build_user_message(operator_notes, battery),
+                config=types.GenerateContentConfig(
+                    system_instruction=SYSTEM_PROMPT,
+                    response_mime_type="application/json",
+                    response_schema=_RawResponse,
+                ),
+            )
+            parsed: _RawResponse | None = response.parsed
+            if parsed is not None and parsed.interpretations:
+                return [item.model_dump() for item in parsed.interpretations]
+            logger.warning("LLM response missing usable structured output (attempt %d)", attempt)
+        except Exception:
+            logger.warning("LLM interpretation call failed (attempt %d)", attempt, exc_info=True)
+        if attempt == 0:
+            await asyncio.sleep(0.5)
+
+    logger.error("LLM interpretation exhausted retries; falling back to no_op")
+    return _fallback_no_op(operator_notes)
