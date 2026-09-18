@@ -17,11 +17,14 @@ from app.schemas import (
 EPSILON = 1e-4
 
 
+SOLVER_TIME_LIMIT_SECONDS = 15
+
+
 def _solver() -> pulp.LpSolver:
     cbc_path = shutil.which("cbc")
     if cbc_path:
-        return pulp.COIN_CMD(path=cbc_path, msg=False)
-    return pulp.PULP_CBC_CMD(msg=False)
+        return pulp.COIN_CMD(path=cbc_path, msg=False, timeLimit=SOLVER_TIME_LIMIT_SECONDS)
+    return pulp.PULP_CBC_CMD(msg=False, timeLimit=SOLVER_TIME_LIMIT_SECONDS)
 
 
 class _EffectiveInputs:
