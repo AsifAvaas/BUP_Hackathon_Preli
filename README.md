@@ -4,10 +4,21 @@ An HTTP API that reads a 24-hour campus energy forecast (demand, solar, grid tar
 
 Built for the **BUP CSE Fest 2026 Hackathon — Preliminary Round** ("GridWise" / LLM-Assisted Operator Directive Interpretation challenge).
 
+## Live deployment
+
+- **Base URL:** [`https://gridwise-llm-d21u.onrender.com`](https://gridwise-llm-d21u.onrender.com)
+- **Health:** `GET https://gridwise-llm-d21u.onrender.com/health`
+- **Main endpoint:** `POST https://gridwise-llm-d21u.onrender.com/optimize-energy`
+
+No login, VPN, or manual approval required — both endpoints are directly reachable.
+
+Deployed on [Render](https://render.com) directly from this repository's `Dockerfile` — the live URL above runs the exact same container image described in [Running with Docker](#running-with-docker), not a separate build. A scheduled job pings `/health` every 13 minutes to keep the instance warm and avoid Render free-tier cold starts.
+
 ---
 
 ## Table of Contents
 
+- [Live deployment](#live-deployment)
 - [How it works](#how-it-works)
 - [Tech stack](#tech-stack)
 - [Repository layout](#repository-layout)
@@ -142,7 +153,7 @@ docker build -t gridwise-llm .
 docker run --rm -p 8000:8000 --env-file .env gridwise-llm
 ```
 
-The container installs the `coinor-cbc` solver at build time and listens on `0.0.0.0:8000`, matching the judge harness's expected deployment shape.
+The container installs the `coinor-cbc` solver at build time, runs as a non-root user, declares a `HEALTHCHECK` against `/health`, and listens on `0.0.0.0:8000` — matching the judge harness's expected deployment shape. No secrets are baked into the image; `GEMINI_API_KEY` is injected at runtime via `--env-file`/environment variables only. This exact `Dockerfile` is also what [powers the live deployment](#live-deployment) on Render.
 
 ## Environment variables
 
@@ -322,10 +333,11 @@ curl -X POST http://localhost:8000/optimize-energy \
 ## Known limitations
 
 - **No secondary objective on schedule shape.** The optimizer minimizes total cost only. When two or more hours share the same tariff, the LP has more than one optimal solution — the total cost and directive compliance are always correct, but the exact hour-by-hour battery action sequence (and therefore `peak_grid_kwh`) can differ from another equally-optimal schedule (including the public sample pack's reference plan). This is expected LP degeneracy, not a bug — see the challenge spec's "no byte-for-byte matching" clause.
-- **Single LLM call per request, no retry loop.** If the Gemini call fails (rate limit, transient 5xx, missing key), the service falls back to `no_op` for every note in that request rather than retrying — this favors availability/latency over squeezing out one more attempt. A request that hit this fallback can simply be retried by the caller.
+- **One retry on LLM failure, then safe fallback.** If the Gemini call fails or returns unusable output (rate limit, transient 5xx, missing key), the service retries once after a 0.5s backoff; if that also fails, it falls back to `no_op` for every note in that request rather than erroring. The retry noticeably improves interpretation reliability against transient provider errors but adds a few seconds of tail latency on the occasional request that needs it (observed on the live deployment: most requests ~1.4-3s, occasional outliers ~8-12s when a retry fires) — still well within the 30s hard timeout.
 - **Model availability depends on Google's rollout schedule.** `GEMINI_MODEL` defaults to the `gemini-flash-lite-latest` alias specifically to avoid pinning a model id that could be deprecated mid-event; if Google changes what that alias resolves to, interpretation quality could shift slightly.
 - **No persistence, no caching, no rate limiting.** Every request is handled independently and statelessly; repeated identical requests each trigger a fresh LLM call rather than being cached.
 - **No authentication.** The API is unauthenticated by design, matching the judge harness's requirement for direct, login-free access.
+- **Render free-tier cold starts, mitigated.** Render's free tier spins an idle instance down after 15 minutes of inactivity, which would otherwise make the first request after a gap slow. A scheduled job pings `/health` every 13 minutes to keep the instance warm, so this shouldn't be hit during evaluation.
 - **CBC solver, not a commercial LP solver.** For a 24-variable-per-hour LP this is fast and reliable, but CBC's tie-breaking behavior among equally optimal solutions is not customized (see the degeneracy point above).
 
 ## Credits & dependencies
